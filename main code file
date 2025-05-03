@@ -1,0 +1,208 @@
+import React, { useEffect, useState, useMemo } from 'react';
+import axios from 'axios';
+
+interface User {
+  id: number;
+  firstName: string;
+  lastName: string;
+  age: number;
+  city: string;
+}
+
+const App = () => {
+  // States
+  const [users, setUsers] = useState<User[]>([]);
+  const [search, setSearch] = useState('');
+  const [selectedCity, setSelectedCity] = useState('');
+  const [highlightOldest, setHighlightOldest] = useState(false);
+  const [debouncedSearch, setDebouncedSearch] = useState('');
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  // Fetch users from API
+  useEffect(() => {
+    const fetchData = async () => {
+      try {
+        setIsLoading(true);
+        const response = await axios.get('https://dummyjson.com/users');
+        
+        // Validate API response structure
+        if (Array.isArray(response.data?.users)) {
+          setUsers(response.data.users);
+        } else {
+          throw new Error('Unexpected API response structure');
+        }
+      } catch (error) {
+        console.error('Error fetching users:', error);
+        setError('An error occurred while loading user data. Please try again later.');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    fetchData();
+  }, []);
+
+  // Debounce effect for search
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(search);
+    }, 1000);
+    
+    return () => clearTimeout(handler);
+  }, [search]);
+
+  // City list (unique)
+  const cities = useMemo(() => 
+    Array.from(new Set(users.map(u => u.city))).sort(), 
+  [users]);
+
+  // Filtered users
+  const filteredUsers = useMemo(() => {
+    return users.filter(user => {
+      const fullName = `${user.firstName} ${user.lastName}`.toLowerCase();
+      const matchesName = fullName.includes(debouncedSearch.toLowerCase());
+      const matchesCity = selectedCity ? user.city === selectedCity : true;
+      return matchesName && matchesCity;
+    });
+  }, [users, debouncedSearch, selectedCity]);
+
+  // Oldest users per city
+  const oldestPerCity = useMemo(() => {
+    const cityMap: Record<string, User> = {};
+    
+    users.forEach(user => {
+      if (!cityMap[user.city] || 
+         (user.age > cityMap[user.city].age) ||
+         (user.age === cityMap[user.city].age && user.id < cityMap[user.city].id)) {
+        cityMap[user.city] = user;
+      }
+    });
+    
+    return cityMap;
+  }, [users]);
+
+  // Loading or error state
+  if (isLoading) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto text-center">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-gray-900 mx-auto my-8"></div>
+        <p>Loading users...</p>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="p-4 max-w-4xl mx-auto text-center text-red-500">
+        <p>{error}</p>
+        <button 
+          onClick={() => window.location.reload()}
+          className="mt-4 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
+        >
+          Try Again
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 max-w-4xl mx-auto">
+      <h1 className="text-2xl font-bold mb-6">User Directory</h1>
+      
+      {/* Filter Controls */}
+      <div className="mb-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div>
+          <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-1">
+            Search by name
+          </label>
+          <input
+            id="search"
+            type="text"
+            placeholder="Enter first or last name"
+            className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+        
+        <div>
+          <label htmlFor="city" className="block text-sm font-medium text-gray-700 mb-1">
+            Select city
+          </label>
+          <select
+            id="city"
+            className="w-full border p-2 rounded focus:ring-2 focus:ring-blue-500"
+            value={selectedCity}
+            onChange={(e) => setSelectedCity(e.target.value)}
+          >
+            <option value="">All Cities</option>
+            {cities.map(city => (
+              <option key={city} value={city}>{city}</option>
+            ))}
+          </select>
+        </div>
+        
+        <div className="flex items-center">
+          <input
+            id="highlight"
+            type="checkbox"
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+            checked={highlightOldest}
+            onChange={(e) => setHighlightOldest(e.target.checked)}
+          />
+          <label htmlFor="highlight" className="ml-2 block text-sm text-gray-900">
+            Highlight oldest in city
+          </label>
+        </div>
+      </div>
+      
+      {/* Results */}
+      {filteredUsers.length === 0 ? (
+        <div className="text-center py-8 text-gray-500">
+          <p>No users found. Try changing your filters.</p>
+        </div>
+      ) : (
+        <ul className="space-y-3">
+          {filteredUsers.map(user => {
+            const isOldest = highlightOldest && oldestPerCity[user.city]?.id === user.id;
+            
+            return (
+              <li
+                key={user.id}
+                className={`border p-4 rounded-lg transition-all ${isOldest ? 
+                  'bg-yellow-100 border-yellow-300 shadow-md' : 
+                  'hover:bg-gray-50 hover:shadow-sm'}`}
+              >
+                <div className="flex justify-between items-start">
+                  <div>
+                    <h2 className="font-semibold text-lg">
+                      {user.firstName} {user.lastName}
+                      {isOldest && (
+                        <span className="ml-2 px-2 py-1 text-xs bg-yellow-200 text-yellow-800 rounded-full">
+                          Oldest
+                        </span>
+                      )}
+                    </h2>
+                    <div className="mt-1 text-sm text-gray-600">
+                      <p>Age: {user.age}</p>
+                      <p>City: {user.city}</p>
+                    </div>
+                  </div>
+                  <span className="text-xs text-gray-400">ID: {user.id}</span>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+      
+      {/* Statistics */}
+      <div className="mt-6 pt-4 border-t text-sm text-gray-500">
+        Showing {filteredUsers.length} users (Total {users.length})
+      </div>
+    </div>
+  );
+};
+
+export default App;
